@@ -70,6 +70,13 @@ struct MenuBarView: View {
                 }
             }
 
+        if !powerManager.hasAccessibilityPermission {
+            Divider()
+            Button("⚠️ Grant Accessibility Access…") {
+                powerManager.requestAccessibilityPermission()
+            }
+        }
+
         Divider()
 
         Button("Quit KeepAlive") {

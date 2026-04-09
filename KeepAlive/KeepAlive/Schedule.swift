@@ -79,6 +79,20 @@ struct Schedule: Identifiable, Codable, Equatable {
         return false
     }
 
+    var secondsUntilEnd: Int {
+        let now = Date()
+        let calendar = Calendar.current
+        let currentSeconds = calendar.component(.hour, from: now) * 3600
+            + calendar.component(.minute, from: now) * 60
+            + calendar.component(.second, from: now)
+        let endSeconds = endTime.hour * 3600 + endTime.minute * 60
+        if endSeconds > currentSeconds {
+            return endSeconds - currentSeconds
+        } else {
+            return (24 * 3600 - currentSeconds) + endSeconds
+        }
+    }
+
     var daysDescription: String {
         let sorted = days.sorted()
         if sorted.count == 7 { return "Every day" }

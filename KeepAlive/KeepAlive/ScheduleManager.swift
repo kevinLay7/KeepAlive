@@ -7,8 +7,10 @@ class ScheduleManager: ObservableObject {
         didSet { save() }
     }
     @Published private(set) var activeSchedule: Schedule?
+    @Published private(set) var scheduleFormattedRemaining: String = ""
 
     private var checkCancellable: AnyCancellable?
+    private var countdownCancellable: AnyCancellable?
     private let userDefaultsKey = "keepalive.schedules"
 
     weak var powerManager: PowerManager?
@@ -47,10 +49,44 @@ class ScheduleManager: ObservableObject {
                 activeSchedule = match
                 sessionTimer?.stop()
                 powerManager?.activate()
+                startCountdown()
             }
         } else if activeSchedule != nil {
             activeSchedule = nil
+            stopCountdown()
             deactivate()
+        }
+    }
+
+    private func startCountdown() {
+        stopCountdown()
+        updateScheduleCountdown()
+        countdownCancellable = Timer.publish(every: 1, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { @MainActor in
+                    self.updateScheduleCountdown()
+                }
+            }
+    }
+
+    private func stopCountdown() {
+        countdownCancellable?.cancel()
+        countdownCancellable = nil
+        scheduleFormattedRemaining = ""
+    }
+
+    private func updateScheduleCountdown() {
+        guard let schedule = activeSchedule else { stopCountdown(); return }
+        let secs = schedule.secondsUntilEnd
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        if h > 0 {
+            scheduleFormattedRemaining = String(format: "%d:%02d:%02d", h, m, s)
+        } else {
+            scheduleFormattedRemaining = String(format: "%02d:%02d", m, s)
         }
     }
 

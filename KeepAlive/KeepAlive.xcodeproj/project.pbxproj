@@ -15,6 +15,7 @@
 		A1000006 /* Schedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000006 /* Schedule.swift */; };
 		A1000007 /* ScheduleManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000007 /* ScheduleManager.swift */; };
 		A1000008 /* ScheduleEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000008 /* ScheduleEditorView.swift */; };
+		A1000009 /* VirtualHIDDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000009 /* VirtualHIDDevice.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -26,6 +27,7 @@
 		A2000006 /* Schedule.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Schedule.swift; sourceTree = "<group>"; };
 		A2000007 /* ScheduleManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleManager.swift; sourceTree = "<group>"; };
 		A2000008 /* ScheduleEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScheduleEditorView.swift; sourceTree = "<group>"; };
+		A2000009 /* VirtualHIDDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VirtualHIDDevice.swift; sourceTree = "<group>"; };
 		A3000001 /* KeepAlive.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeepAlive.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -53,6 +55,7 @@
 			children = (
 				A2000001 /* KeepAliveApp.swift */,
 				A2000002 /* PowerManager.swift */,
+				A2000009 /* VirtualHIDDevice.swift */,
 				A2000003 /* SessionTimer.swift */,
 				A2000004 /* MenuBarView.swift */,
 				A2000006 /* Schedule.swift */,
@@ -142,6 +145,7 @@
 			files = (
 				A1000001 /* KeepAliveApp.swift in Sources */,
 				A1000002 /* PowerManager.swift in Sources */,
+				A1000009 /* VirtualHIDDevice.swift in Sources */,
 				A1000003 /* SessionTimer.swift in Sources */,
 				A1000004 /* MenuBarView.swift in Sources */,
 				A1000006 /* Schedule.swift in Sources */,

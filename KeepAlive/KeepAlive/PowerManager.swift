@@ -10,9 +10,9 @@ class PowerManager: ObservableObject {
 
     private var displayAssertionID: IOPMAssertionID = 0
     private var sleepAssertionID: IOPMAssertionID = 0
-    private var jiggleCancellable: AnyCancellable?
     private var reassertCancellable: AnyCancellable?
     private var permissionPollCancellable: AnyCancellable?
+    private var virtualHID: VirtualHIDDevice?
 
     init() {
         hasAccessibilityPermission = AXIsProcessTrusted()
@@ -45,6 +45,8 @@ class PowerManager: ObservableObject {
     func activate() {
         guard !isActive else { return }
         acquireAssertions()
+        // Try to stand up a virtual HID keyboard; falls back to CGEvent if unavailable.
+        virtualHID = VirtualHIDDevice()
         isActive = true
         startJiggle()
         startReassertTimer()
@@ -55,6 +57,7 @@ class PowerManager: ObservableObject {
         releaseAssertions()
         stopJiggle()
         stopReassertTimer()
+        virtualHID = nil
         isActive = false
     }
 
@@ -94,7 +97,9 @@ class PowerManager: ObservableObject {
     // MARK: - Periodic re-assertion
 
     private func startReassertTimer() {
-        reassertCancellable = Timer.publish(every: 120, on: .main, in: .common)
+        // IOPMAssertions don't expire on their own; refresh hourly as a watchdog
+        // in case something external releases them (rare, but cheap to guard against).
+        reassertCancellable = Timer.publish(every: 3600, on: .main, in: .common)
             .autoconnect()
             .sink { [weak self] _ in
                 guard let self else { return }
@@ -111,29 +116,68 @@ class PowerManager: ObservableObject {
     }
 
     // MARK: - Jiggle
+    //
+    // Two design choices worth calling out:
+    //   1. We only nudge when real HID idle exceeds `idleThreshold`, so typing/clicking
+    //      never produces a synthetic event. Matches Amphetamine's "Inactivity Delay".
+    //   2. We skip nudges while the screen is locked — a jiggler that keeps firing post-lock
+    //      is the canonical "mouse jiggler" signature in EDR hunting queries.
+    // Interval is jittered ±20% so the cadence doesn't look like a metronome.
+
+    // Teams on macOS flips "Away" at ~5 minutes of real HID idle, so we nudge before that.
+    // Check every ~2 minutes; act if the user has actually been idle for 3 minutes.
+    private let baseInterval: TimeInterval = 120
+    private let idleThreshold: TimeInterval = 180
+
+    private var jiggleTimer: DispatchSourceTimer?
 
     private func startJiggle() {
-        // Nudge immediately on activation, then every 15 seconds
-        nudge()
-        jiggleCancellable = Timer.publish(every: 15, on: .main, in: .common)
-            .autoconnect()
-            .sink { [weak self] _ in
-                guard let self else { return }
-                Task { @MainActor in
-                    self.nudge()
-                }
-            }
+        scheduleNextJiggle(initial: true)
     }
 
     private func stopJiggle() {
-        jiggleCancellable?.cancel()
-        jiggleCancellable = nil
+        jiggleTimer?.cancel()
+        jiggleTimer = nil
+    }
+
+    private func scheduleNextJiggle(initial: Bool = false) {
+        let jitter = Double.random(in: -0.2...0.2)
+        let delay = initial ? 5 : baseInterval * (1 + jitter)
+        let timer = DispatchSource.makeTimerSource(queue: .main)
+        timer.schedule(deadline: .now() + delay)
+        timer.setEventHandler { [weak self] in
+            guard let self else { return }
+            self.maybeNudge()
+            self.scheduleNextJiggle()
+        }
+        timer.resume()
+        jiggleTimer = timer
+    }
+
+    private func maybeNudge() {
+        // Skip if the screen is locked — post-lock jiggles are the EDR signature.
+        if isScreenLocked() { return }
+        // Skip unless the user has actually been idle long enough to matter.
+        let realIdle = CGEventSource.secondsSinceLastEventType(
+            .combinedSessionState, eventType: .init(rawValue: ~0)!
+        )
+        if realIdle < idleThreshold { return }
+        nudge()
+    }
+
+    private func isScreenLocked() -> Bool {
+        guard let dict = CGSessionCopyCurrentDictionary() as? [String: Any] else { return false }
+        return (dict["CGSSessionScreenIsLocked"] as? Bool) == true
     }
 
     private func nudge() {
         declareUserActivity()
-        nudgeMouse()
-        tapInvisibleKey()
+        if let virtualHID {
+            virtualHID.tapF20()
+        } else {
+            nudgeMouse()
+            tapInvisibleKey()
+        }
     }
 
     private func declareUserActivity() {
@@ -151,23 +195,27 @@ class PowerManager: ObservableObject {
         let nudged = CGPoint(x: currentPos.x + offset, y: cgY + offset)
         let original = CGPoint(x: currentPos.x, y: cgY)
 
-        // Move away then back so the cursor ends up where it started
-        if let moveOut = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: nudged, mouseButton: .left) {
+        // Use the HID system source so the event updates IOHIDSystem's HIDIdleTime
+        // (a nil source posts a private event that doesn't reset the screensaver timer).
+        let src = CGEventSource(stateID: .hidSystemState)
+        if let moveOut = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: nudged, mouseButton: .left) {
             moveOut.post(tap: .cgSessionEventTap)
         }
-        if let moveBack = CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: original, mouseButton: .left) {
+        if let moveBack = CGEvent(mouseEventSource: src, mouseType: .mouseMoved, mouseCursorPosition: original, mouseButton: .left) {
             moveBack.post(tap: .cgSessionEventTap)
         }
     }
 
     private func tapInvisibleKey() {
-        // F15 (0x71) — real keypress that registers as user activity
-        // but doesn't produce visible output in any app.
-        // Modifier-only keys (shift) are often ignored by activity detectors.
+        // F15 (0x71) = brightness up, F14 (0x6B) = brightness down on Apple keyboards.
+        // Pressing them as a pair nets to zero brightness drift while guaranteeing
+        // two real HID keypress events that reset HIDIdleTime and satisfy Teams.
         let src = CGEventSource(stateID: .hidSystemState)
-        let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 0x71, keyDown: true)
-        let keyUp   = CGEvent(keyboardEventSource: src, virtualKey: 0x71, keyDown: false)
-        keyDown?.post(tap: .cgSessionEventTap)
-        keyUp?.post(tap: .cgSessionEventTap)
+        for key in [CGKeyCode(0x71), CGKeyCode(0x6B)] {
+            CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: true)?
+                .post(tap: .cgSessionEventTap)
+            CGEvent(keyboardEventSource: src, virtualKey: key, keyDown: false)?
+                .post(tap: .cgSessionEventTap)
+        }
     }
 }

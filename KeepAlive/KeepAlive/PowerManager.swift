@@ -13,8 +13,10 @@ class PowerManager: ObservableObject {
     private var reassertCancellable: AnyCancellable?
     private var permissionPollCancellable: AnyCancellable?
     private var virtualHID: VirtualHIDDevice?
+    private let karabinerBridge: KarabinerBridge?
 
-    init() {
+    init(karabinerBridge: KarabinerBridge? = nil) {
+        self.karabinerBridge = karabinerBridge
         hasAccessibilityPermission = AXIsProcessTrusted()
         // Poll until granted so the UI updates without a restart
         if !hasAccessibilityPermission {
@@ -172,6 +174,23 @@ class PowerManager: ObservableObject {
 
     private func nudge() {
         declareUserActivity()
+
+        // Tier 1: Karabiner VHID bridge (real DriverKit HID device — works on
+        // Intune-managed Macs where synthetic CGEvents don't reset the lock timer).
+        // Async; fallback only fires if the bridge isn't running or reports failure.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            if let bridge = self.karabinerBridge, await bridge.nudge() {
+                return
+            }
+            self.fallbackNudge()
+        }
+    }
+
+    private func fallbackNudge() {
+        // Tier 2: local IOHIDUserDevice (usually fails on macOS 15+ without
+        // the com.apple.developer.hid.virtual.device entitlement).
+        // Tier 3: CGEvent mouse + F15/F14.
         if let virtualHID {
             virtualHID.tapF20()
         } else {

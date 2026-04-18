@@ -3,12 +3,14 @@ import Combine
 
 @MainActor
 final class AppState: ObservableObject {
-    let powerManager = PowerManager()
+    let karabinerBridge = KarabinerBridge()
+    let powerManager: PowerManager
     let sessionTimer = SessionTimer()
     let scheduleManager: ScheduleManager
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        powerManager = PowerManager(karabinerBridge: karabinerBridge)
         scheduleManager = ScheduleManager(powerManager: powerManager, sessionTimer: sessionTimer)
 
         // Forward sub-object changes so MenuBarExtra label re-renders
@@ -19,6 +21,9 @@ final class AppState: ObservableObject {
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
         scheduleManager.objectWillChange
+            .sink { [weak self] in self?.objectWillChange.send() }
+            .store(in: &cancellables)
+        karabinerBridge.objectWillChange
             .sink { [weak self] in self?.objectWillChange.send() }
             .store(in: &cancellables)
     }
@@ -33,7 +38,8 @@ struct KeepAliveApp: App {
             MenuBarView(
                 powerManager: appState.powerManager,
                 sessionTimer: appState.sessionTimer,
-                scheduleManager: appState.scheduleManager
+                scheduleManager: appState.scheduleManager,
+                karabinerBridge: appState.karabinerBridge
             )
         } label: {
             if appState.powerManager.isActive {

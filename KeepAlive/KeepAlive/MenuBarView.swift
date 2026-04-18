@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @ObservedObject var powerManager: PowerManager
     @ObservedObject var sessionTimer: SessionTimer
     @ObservedObject var scheduleManager: ScheduleManager
+    @ObservedObject var karabinerBridge: KarabinerBridge
     @Environment(\.openWindow) private var openWindow
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
 
@@ -79,10 +80,54 @@ struct MenuBarView: View {
 
         Divider()
 
+        Menu("Karabiner Bridge") {
+            Text(karabinerBridgeStatusLabel)
+            Divider()
+            switch karabinerBridge.state {
+            case .notRegistered, .registrationFailed:
+                Button("Install Helper…") { karabinerBridge.register() }
+            case .requiresApproval:
+                Button("Open Login Items Settings…") {
+                    SMAppService.openSystemSettingsLoginItems()
+                }
+                Button("Re-check Status") {
+                    karabinerBridge.refreshStateFromSMAppService()
+                }
+            case .running, .unresponsive:
+                Button("Uninstall Helper") { karabinerBridge.unregister() }
+                Button("Refresh Status") {
+                    Task { await karabinerBridge.refreshStatus() }
+                }
+            case .registering:
+                Text("Registering…").disabled(true)
+            }
+        }
+
+        Divider()
+
         Button("Quit KeepAlive") {
             powerManager.deactivate()
             NSApplication.shared.terminate(nil)
         }
         .keyboardShortcut("q", modifiers: [.command])
+    }
+
+    private var karabinerBridgeStatusLabel: String {
+        switch karabinerBridge.state {
+        case .notRegistered:
+            return "Not installed"
+        case .registering:
+            return "Registering…"
+        case .requiresApproval:
+            return "Waiting for approval in System Settings"
+        case .registrationFailed(let msg):
+            return "Failed: \(msg)"
+        case .running:
+            if karabinerBridge.pointingReady { return "Active — driver ready" }
+            if karabinerBridge.driverConnected { return "Active — initializing…" }
+            return "Active — waiting for driver"
+        case .unresponsive(let msg):
+            return "Unresponsive: \(msg)"
+        }
     }
 }

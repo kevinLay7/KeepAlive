@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Intentionally minimal. We do not enable app sandbox because:
+         (a) the existing KeepAlive app is unsandboxed, and
+         (b) the SMAppService daemon pattern requires the app and helper to share
+             a team ID, not a sandbox container. -->
+</dict>
+</plist>

@@ -86,17 +86,10 @@ struct MenuBarView: View {
             switch karabinerBridge.state {
             case .notRegistered, .registrationFailed:
                 Button("Install Helper…") { karabinerBridge.register() }
-            case .requiresApproval:
-                Button("Open Login Items Settings…") {
-                    SMAppService.openSystemSettingsLoginItems()
-                }
-                Button("Re-check Status") {
-                    karabinerBridge.refreshStateFromSMAppService()
-                }
             case .running, .unresponsive:
                 Button("Uninstall Helper") { karabinerBridge.unregister() }
                 Button("Refresh Status") {
-                    Task { await karabinerBridge.refreshStatus() }
+                    karabinerBridge.refreshStateFromSMAppService()
                 }
             case .registering:
                 Text("Registering…").disabled(true)
@@ -118,8 +111,6 @@ struct MenuBarView: View {
             return "Not installed"
         case .registering:
             return "Registering…"
-        case .requiresApproval:
-            return "Waiting for approval in System Settings"
         case .registrationFailed(let msg):
             return "Failed: \(msg)"
         case .running:

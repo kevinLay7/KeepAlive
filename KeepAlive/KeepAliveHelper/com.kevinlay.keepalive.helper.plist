@@ -1,41 +1,25 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
     <key>Label</key>
     <string>com.kevinlay.keepalive.helper</string>
 
-    <!-- BundleProgram is relative to the enclosing app bundle root.
-         SMAppService.daemon() looks for this plist at
-         <KeepAlive.app>/Contents/Library/LaunchDaemons/<Label>.plist
-         and the executable here. -->
-    <key>BundleProgram</key>
-    <string>Contents/MacOS/com.kevinlay.keepalive.helper</string>
-
-    <!-- MachServices advertises a named Mach port the main app connects to via
-         NSXPCConnection(machServiceName:). Name must match kKarabinerHelperMachServiceName. -->
-    <key>MachServices</key>
-    <dict>
-        <key>com.kevinlay.keepalive.helper</key>
-        <true/>
-    </dict>
-
-    <!-- Required by SMAppService so launchd associates the daemon with the app. -->
-    <key>AssociatedBundleIdentifiers</key>
+    <!-- Standalone LaunchDaemon (not bundled via SMAppService).
+         install.sh copies this plist + the helper binary into place. -->
+    <key>ProgramArguments</key>
     <array>
-        <string>com.kevinlay.keepalive</string>
+        <string>/usr/local/libexec/keepalive-helper</string>
     </array>
 
-    <!-- Relaunch on crash; idle for up to 30s before being killed for resources. -->
+    <key>RunAtLoad</key>
+    <true/>
     <key>KeepAlive</key>
     <true/>
-    <key>ProcessType</key>
-    <string>Interactive</string>
 
-    <!-- Log to a user-readable location for debugging. Remove before shipping widely. -->
     <key>StandardOutPath</key>
-    <string>/tmp/com.kevinlay.keepalive.helper.out.log</string>
+    <string>/var/log/keepalive-helper.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/com.kevinlay.keepalive.helper.err.log</string>
+    <string>/var/log/keepalive-helper.log</string>
 </dict>
 </plist>

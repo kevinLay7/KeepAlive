@@ -1,55 +1,126 @@
 # KeepAlive
 
-A minimal macOS menu-bar app that keeps your Mac awake and your presence "active" — useful when you step away from your desk for lunch, meetings, or long builds and don't want your screen to lock, your status to flip to Away, or your session to time out.
+Minimal macOS menu-bar app. Keeps your Mac awake and your presence "active" so screen lock, Teams/Slack "Away", and MDM inactivity timers don't fire while you're at lunch or in a meeting.
 
 ## What it does
 
-When active, KeepAlive:
+When active:
 
-1. Holds `IOPMAssertionTypeNoDisplaySleep` and `NoIdleSleep` power assertions so the display and system don't sleep on their own.
-2. Once you've actually been idle for ~3 minutes, posts a brightness-up + brightness-down keypress pair every ~2 minutes (jittered). This resets `IOHIDSystem`'s idle counter so macOS, Teams, Slack, and similar tools see you as present without any drift in brightness, focus, or cursor position.
-3. Stops posting any synthetic events while the screen is locked.
+1. Holds `kIOPMAssertionTypeNoDisplaySleep` + `NoIdleSleep` so display/system don't idle-sleep.
+2. Once real HID idle exceeds ~3 min, sends a 1-byte nudge to a root LaunchDaemon every ~2 min (jittered ±20%).
+3. Helper forwards nudge to the **Karabiner-DriverKit-VirtualHIDDevice** daemon, which posts a real `±1`-pixel pointing report through the DriverKit dext. Kernel sees a real HID event → `HIDIdleTime` resets → macOS, Teams, Slack, Intune all see you as present.
+4. If Karabiner/helper isn't installed, falls back to synthetic `CGEvent` (F15/F14 + mouse nudge). Good enough for Teams, **not** enough for Intune-managed Macs.
+5. Skips nudges while the screen is locked — post-lock jiggle is the canonical EDR signature.
 
-What it does **not** do: no keystrokes into your focused app, no cursor jiggling, no network calls, no telemetry, no background data collection.
+No keystrokes into your focused app, no cursor jiggling, no network, no telemetry.
 
 ## Requirements
 
 - macOS 14 (Sonoma) or later
-- Xcode 15+ to build
+- Xcode 15+ (to build)
+- **Karabiner-DriverKit-VirtualHIDDevice v6.8+** with the dext activated — this is what lets us post *real* HID events instead of synthetic ones. Without it the app still runs but drops to the CGEvent fallback.
 
-## Build and run
+## Install
+
+### 1. Install Karabiner's virtual HID driver
+
+Only the driver is required — not full Karabiner-Elements.
+
+```bash
+brew install --cask karabiner-elements
+```
+
+On first launch, approve the DriverKit system extension in **System Settings → Privacy & Security → Allow System Software**, then reboot if prompted. You can verify the driver is live by checking:
+
+```bash
+ls "/Library/Application Support/org.pqrs/tmp/rootonly/vhidd_server/"*.sock
+```
+
+At least one `.sock` file should exist.
+
+### 2. Build the app
 
 ```bash
 git clone https://github.com/<your-org>/keepalive.git
 cd keepalive/KeepAlive
-xcodebuild -scheme KeepAlive -configuration Release build
-cp -R "$(xcodebuild -scheme KeepAlive -configuration Release -showBuildSettings \
-    | awk -F' = ' '/ CONFIGURATION_BUILD_DIR /{print $2}')/KeepAlive.app" /Applications/
+xcodebuild -project KeepAlive.xcodeproj -scheme KeepAlive \
+           -configuration Release -derivedDataPath build build
+cp -R build/Build/Products/Release/KeepAlive.app /Applications/
 open /Applications/KeepAlive.app
 ```
 
-Or just open `KeepAlive.xcodeproj` in Xcode and press ⌘R.
+Or open `KeepAlive.xcodeproj` in Xcode and press ⌘R.
 
-On first launch, grant **Accessibility** when prompted (System Settings → Privacy & Security → Accessibility). This is required for `CGEventPost` to reach the HID event system.
+### 3. Install the root helper daemon
 
-## How it works
+The helper is a tiny swift binary that runs as root so it can reach Karabiner's root-only VHID socket. It listens on `/var/run/keepalive.sock` for 1-byte nudges from the app.
 
-KeepAlive combines two independent mechanisms so it covers all the common ways macOS decides you're idle:
+```bash
+sudo KeepAliveHelper/install.sh
+```
 
-- **Power assertions** (`IOPMAssertionCreateWithName`) handle display sleep and system idle sleep. They do *not* affect the screensaver/lock timer, which is driven by HID idle time, not display state.
-- **Synthetic HID events** (`CGEventPost` with `.hidSystemState` source) reset the HID idle counter so the screensaver, Teams "Away" timer, and MDM-enforced inactivity locks don't fire.
+This script:
 
-A check runs every ~2 minutes (jittered ±20%). If real HID idle time is below 3 minutes, nothing happens — you're using the machine. If it's above 3 minutes *and* the screen isn't locked, a single F15 (brightness up) + F14 (brightness down) pair is posted. Net brightness change is zero, but two real keypress events reach the kernel.
+- `swiftc`-compiles `KeepAliveHelper/KeepAliveHelper.swift` → `/usr/local/libexec/keepalive-helper`
+- Installs the LaunchDaemon plist → `/Library/LaunchDaemons/com.kevinlay.keepalive.helper.plist`
+- `launchctl bootstrap`s + kickstarts the daemon
 
-There's also a prototype virtual-HID path in `VirtualHIDDevice.swift` that attempts to register a virtual keyboard via `IOHIDUserDeviceCreate`. On macOS 11+, virtual *keyboard* devices require the `com.apple.developer.hid.virtual.device` entitlement, which Apple only grants to specific developers, so this path no-ops for locally-signed builds and the `CGEvent` path carries the load.
+Re-run the same script to update after any helper changes; it cleanly boots out the old instance first.
+
+Verify:
+
+```bash
+sudo launchctl print system/com.kevinlay.keepalive.helper | grep -E 'state|pid'
+tail -f /var/log/keepalive-helper.log
+```
+
+### 4. Grant Accessibility (fallback path only)
+
+On first launch the app will prompt for **Accessibility** (System Settings → Privacy & Security → Accessibility). This is only required for the `CGEvent` fallback — the Karabiner path doesn't need it. Granting is still recommended so the app degrades cleanly if the helper or driver goes away.
+
+## Uninstall
+
+```bash
+sudo launchctl bootout system /Library/LaunchDaemons/com.kevinlay.keepalive.helper.plist
+sudo rm /Library/LaunchDaemons/com.kevinlay.keepalive.helper.plist
+sudo rm /usr/local/libexec/keepalive-helper
+rm -rf /Applications/KeepAlive.app
+```
+
+Leave Karabiner's driver alone unless you're uninstalling it separately.
+
+## Architecture
+
+```
+ ┌──────────────────┐   1-byte UDP           ┌──────────────────┐
+ │ KeepAlive.app    │ ─────────────────────▶ │ keepalive-helper │
+ │ (user, menu bar) │  /var/run/keepalive    │ (root LaunchDmn) │
+ └──────────────────┘                        └────────┬─────────┘
+                                                      │ VHID wire v5
+                                                      ▼
+                                 ┌──────────────────────────────────┐
+                                 │ Karabiner-DriverKit-VHID daemon  │
+                                 │   /Library/Application Support/  │
+                                 │   org.pqrs/.../vhidd_server/*    │
+                                 └────────────┬─────────────────────┘
+                                              │ dext
+                                              ▼
+                                         IOHIDSystem
+```
+
+- **Power assertions** (`IOPMAssertionCreateWithName`) handle display/system sleep. They don't affect the screensaver/lock timer — that's driven by HID idle.
+- **Karabiner VHID bridge** is the primary activity path. Real HID pointing reports reset `HIDIdleTime` even on Intune-locked Macs, because the driver lives in kernel HID space, not `CGEvent` space.
+- **CGEvent fallback** (brightness F15/F14 pair + 1px mouse nudge) kicks in only if the helper socket is missing. Resets HIDIdleTime on unmanaged Macs, defeats Teams "Away", but Intune's 900 s screen-lock timer ignores it.
+
+See `KeepAlive/XCODE_SETUP.md` for project-structure notes if you're editing the Xcode project itself.
 
 ## Scheduling
 
-KeepAlive has a simple schedule editor (menu bar → Schedules…) for auto-activating during working hours. Default is Mon–Fri 9–5.
+Menu bar → **Schedules…** — simple editor for auto-activation windows. Default is Mon–Fri 9–5.
 
-## A note on corporate-managed Macs
+## Corporate-managed Macs
 
-If your Mac is managed by MDM (Intune, Jamf, Kandji, etc.), there's likely an inactivity-lock policy in place. KeepAlive defeats it by design. This is fine for personal convenience, but if your employer has a legitimate security reason for that policy — customer data exposure, SOC2 requirements, insurance — using this tool may violate your acceptable-use agreement. Talk to your IT team before deploying it widely.
+If your Mac is MDM-managed (Intune, Jamf, Kandji), it likely has an inactivity-lock policy. The Karabiner path defeats it by design. That may violate your acceptable-use policy — talk to IT before deploying widely.
 
 ## License
 

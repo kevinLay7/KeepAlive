@@ -12,7 +12,6 @@ class PowerManager: ObservableObject {
     private var sleepAssertionID: IOPMAssertionID = 0
     private var reassertCancellable: AnyCancellable?
     private var permissionPollCancellable: AnyCancellable?
-    private var virtualHID: VirtualHIDDevice?
     private let karabinerBridge: KarabinerBridge?
 
     init(karabinerBridge: KarabinerBridge? = nil) {
@@ -47,8 +46,6 @@ class PowerManager: ObservableObject {
     func activate() {
         guard !isActive else { return }
         acquireAssertions()
-        // Try to stand up a virtual HID keyboard; falls back to CGEvent if unavailable.
-        virtualHID = VirtualHIDDevice()
         isActive = true
         startJiggle()
         startReassertTimer()
@@ -59,7 +56,6 @@ class PowerManager: ObservableObject {
         releaseAssertions()
         stopJiggle()
         stopReassertTimer()
-        virtualHID = nil
         isActive = false
     }
 
@@ -188,15 +184,10 @@ class PowerManager: ObservableObject {
     }
 
     private func fallbackNudge() {
-        // Tier 2: local IOHIDUserDevice (usually fails on macOS 15+ without
-        // the com.apple.developer.hid.virtual.device entitlement).
-        // Tier 3: CGEvent mouse + F15/F14.
-        if let virtualHID {
-            virtualHID.tapF20()
-        } else {
-            nudgeMouse()
-            tapInvisibleKey()
-        }
+        // When the helper isn't installed (or fails), we degrade to synthetic CGEvents.
+        // These keep Teams green but won't reset HIDIdleTime on Intune-managed Macs.
+        nudgeMouse()
+        tapInvisibleKey()
     }
 
     private func declareUserActivity() {

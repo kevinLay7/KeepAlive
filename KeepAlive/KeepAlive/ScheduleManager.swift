@@ -80,13 +80,17 @@ class ScheduleManager: ObservableObject {
     private func updateScheduleCountdown() {
         guard let schedule = activeSchedule else { stopCountdown(); return }
         let secs = schedule.secondsUntilEnd
-        let h = secs / 3600
-        let m = (secs % 3600) / 60
-        let s = secs % 60
+        let totalMinutes = Int(ceil(Double(secs) / 60.0))
+        let h = totalMinutes / 60
+        let m = totalMinutes % 60
+        let newValue: String
         if h > 0 {
-            scheduleFormattedRemaining = String(format: "%d:%02d:%02d", h, m, s)
+            newValue = String(format: "%dh %dm", h, m)
         } else {
-            scheduleFormattedRemaining = String(format: "%02d:%02d", m, s)
+            newValue = String(format: "%dm", max(m, 0))
+        }
+        if newValue != scheduleFormattedRemaining {
+            scheduleFormattedRemaining = newValue
         }
     }
 
